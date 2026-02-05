@@ -27,7 +27,7 @@ data_source = st.radio("データソースを選択", ("自動更新(ネット)"
 
 if data_source == "自動更新(ネット)":
     # ネット上の最新CSVを読み込む（GitHubなどに置いておくと便利です）
-    csv_url = "https://raw.githubusercontent.com/あなたのユーザー名/リポジトリ/main/loto7.csv"
+    csv_url = "https://raw.githubusercontent.com/sei002/loto7-app/refs/heads/main/%E3%83%AD%E3%83%887%E9%81%8E%E5%8E%BB%E3%83%87%E3%83%BC%E3%82%BF.csv"
     try:
         df = pd.read_csv(csv_url)
         st.success("最新データをネットから取得しました！")
@@ -112,4 +112,5 @@ if uploaded_file:
             st.line_chart(results)
 
 else:
+
     st.info("左側のサイドバーからCSVファイルをアップロードしてください。")
