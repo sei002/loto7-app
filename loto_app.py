@@ -29,18 +29,22 @@ if data_source == "自動更新(ネット)":
     # ネット上の最新CSVを読み込む（GitHubなどに置いておくと便利です）
     csv_url = "https://raw.githubusercontent.com/sei002/loto7-app/refs/heads/main/%E3%83%AD%E3%83%887%E9%81%8E%E5%8E%BB%E3%83%87%E3%83%BC%E3%82%BF.csv"
     try:
-        df = pd.read_csv(csv_url)
-        # --- 列名の読み替えとデータ変換 ---
-# CSVの列名「num1, num2...」をプログラムで扱いやすいように指定します
-target_cols = ['num1', 'num2', 'num3', 'num4', 'num5', 'num6', 'num7']
+    # ネットからデータを読み込む
+    df = pd.read_csv(csv_url)
+    st.success("最新データをネットから取得しました！")
 
-# 1. 数字が文字列（"07"など）になっていても計算できるように数値変換
-for col in target_cols:
-    df[col] = pd.to_numeric(df[col], errors='coerce')
+    # --- ここから追加した列名修正のコード ---
+    target_cols = ['num1', 'num2', 'num3', 'num4', 'num5', 'num6', 'num7']
+    
+    # 数値に変換する
+    for col in target_cols:
+        df[col] = pd.to_numeric(df[col], errors='coerce')
+    # --------------------------------------
 
-# 2. 予測ロジックに渡すためのリストを作成
-# （あなたの既存の予測コードが '数字1' などを使っている場合は、ここで変換します）
-numbers_only = df[target_cols]
+except Exception as e:
+    # tryの中でエラーが起きたらここが実行される
+    st.error(f"データの読み込みに失敗しました: {e}")
+    df = None # 読み込めなかった場合
 
 # --- 予測ロジックの例（ここをご自身の計算式に合わせて調整してください） ---
 # 例：直近の出現頻度から「本命」を出す場合
@@ -134,4 +138,5 @@ if uploaded_file:
 else:
 
     st.info("左側のサイドバーからCSVファイルをアップロードしてください。")
+
 
