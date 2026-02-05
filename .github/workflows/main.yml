@@ -1,0 +1,27 @@
+name: Update Loto7 Data
+
+on:
+  schedule:
+    - cron: '0 12 * * 5' # 毎週金曜日の21時(日本時間)ごろ実行
+  workflow_dispatch: # 手動実行も可能にする
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4 pandas
+      - name: Run update script
+        run: python update_data.py
+      - name: Commit and Push
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add ロト7過去データ.csv
+          git commit -m "Auto-update data" || exit 0
+          git push
