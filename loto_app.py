@@ -2,13 +2,12 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
-import requests
 
-# 1. ページ設定 (必ず一番最初に書く)
-st.set_page_config(page_title="ロト7 AI分析・予測アプリ", layout="wide")
+# 1. ページ設定
+st.set_page_config(page_title="ロト7 AIセット別分析アプリ", layout="wide")
 
 # --- タイトル ---
-st.title("🎯 ロト7 AI分析・予測システム (Auto-Update)")
+st.title("🎯 ロト7 AI分析・予測システム (Set-Specific)")
 
 # --- サイドバー設定 ---
 st.sidebar.header("設定")
@@ -18,106 +17,115 @@ data_source = st.sidebar.radio("データソースを選択", ("自動更新(ネ
 df = None
 
 if data_source == "自動更新(ネット)":
-    # あなたのGitHubのRawデータURL
     csv_url = "https://raw.githubusercontent.com/sei002/loto7-app/refs/heads/main/%E3%83%AD%E3%83%887%E9%81%8E%E5%8E%BB%E3%83%87%E3%83%BC%E3%82%BF.csv"
     try:
         df = pd.read_csv(csv_url)
-        st.success("最新データをネットから取得しました！")
+        st.success("最新データを取得しました！")
     except Exception as e:
-        st.error(f"ネットからの取得に失敗しました: {e}")
-
+        st.error(f"取得失敗: {e}")
 else:
-    uploaded_file = st.sidebar.file_uploader("過去データ(CSV)をアップロード", type="csv")
+    uploaded_file = st.sidebar.file_uploader("CSVをアップロード", type="csv")
     if uploaded_file:
         df = pd.read_csv(uploaded_file)
-        st.success("CSVを読み込みました。")
 
-# 3. メイン処理（データがある場合のみ実行）
+# 3. メイン処理
 if df is not None:
-    # --- 列名の設定 (あなたのCSVに合わせて num1~num7 を使用) ---
+    # データクレンジング
     target_cols = ['num1', 'num2', 'num3', 'num4', 'num5', 'num6', 'num7']
-    
-    # 全ての数字を数値型に変換
     for col in target_cols:
         df[col] = pd.to_numeric(df[col], errors='coerce')
-    
-    # 欠損値（空欄）がある行を削除
     df = df.dropna(subset=target_cols)
 
-    # パラメータ設定
-    window = st.sidebar.slider("直近分析回数", 5, 30, 10)
-    target_set = st.sidebar.selectbox("次回セット予想", list("ABCDEFGHIJ"), index=0)
+    # --- セット球選択ボタン (タブ形式) ---
+    st.subheader("📂 分析対象のセット球を選択してください")
+    tabs = st.tabs([f"セット {s}" for s in "ABCDEFGHIJ"])
+    
+    # 選択されたセットを判定（タブのインデックスからA-Jを取得）
+    selected_set_index = 0
+    for i, tab in enumerate(tabs):
+        with tab:
+            target_set = chr(65 + i)  # A, B, C...
+            st.write(f"### セット {target_set} のデータに基づいた予測")
+            # このタブが選択されている時に処理を走らせるためのフラグ
+            selected_set = target_set
 
-    # --- 分析エンジン (マルコフ・セット・トレンド) ---
-    def get_markov_scores(data, previous_nums):
-        matrix = np.zeros(38) # 1~37用
-        for i in range(len(data) - 1):
-            curr = set(data.iloc[i][target_cols].values)
-            if not curr.isdisjoint(previous_nums):
-                for n in data.iloc[i+1][target_cols].values:
-                    if 1 <= int(n) <= 37:
-                        matrix[int(n)] += 1
-        return matrix / matrix.sum() if matrix.sum() > 0 else matrix
+    # --- フィルタリング ---
+    # 1. 全データ (マルコフ連鎖などの推移計算用)
+    # 2. 選択されたセットのみのデータ (セット傾向分析用)
+    df_set_only = df[df['set'] == selected_set]
+    
+    if df_set_only.empty:
+        st.warning(f"セット {selected_set} のデータがCSV内に見つかりません。")
+    else:
+        # パラメータ設定
+        window = st.sidebar.slider(f"セット {selected_set} の直近分析回数", 3, len(df_set_only), min(10, len(df_set_only)))
 
-    def generate_ranking(data, t_set, p_nums):
-        score_df = pd.DataFrame({'number': range(1, 38)})
-        
-        # セット偏差
-        total_p = pd.Series(data[target_cols].values.flatten()).value_counts(normalize=True)
-        set_data = data[data['set'] == t_set]
-        if not set_data.empty:
-            set_p = pd.Series(set_data[target_cols].values.flatten()).value_counts(normalize=True)
-        else:
-            set_p = pd.Series()
-        
-        score_df['set_bias'] = score_df['number'].apply(lambda n: set_p.get(n, 0) / total_p.get(n, 7/37) if total_p.get(n, 0) > 0 else 0)
-        
-        # 直近トレンド
-        recent = pd.Series(data.tail(window)[target_cols].values.flatten()).value_counts()
-        score_df['recent'] = score_df['number'].apply(lambda n: recent.get(n, 0))
-        
-        # マルコフ
-        m = get_markov_scores(data, p_nums)
-        score_df['markov'] = score_df['number'].apply(lambda n: m[int(n)] if int(n) < len(m) else 0)
-        
-        # 総合スコア算出
-        score_df['score'] = (score_df['set_bias'] * 0.4) + (score_df['recent'] * 0.4) + (score_df['markov'] * 0.2)
-        return score_df.sort_values('score', ascending=False)
-
-    # --- 予測実行 ---
-    latest = df.iloc[-1]
-    prev = set(latest[target_cols].values)
-    ranking = generate_ranking(df, target_set, prev)
-    top = ranking['number'].astype(int).tolist()
-
-    st.subheader("🔮 次回ロト7 AI予測結果")
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.success(f"**本命 (F)**\n\n{sorted(top[:7])}")
-    with col2:
-        st.info(f"**対抗 (R)**\n\n{sorted(top[:5] + top[7:9])}")
-    with col3:
-        st.warning(f"**穴 (D)**\n\n{sorted(top[:3] + top[14:18])}")
-
-    # --- 統計グラフ ---
-    st.divider()
-    st.subheader("📊 スコア分析推移")
-    fig = px.bar(ranking, x='number', y='score', title="各数字の総合期待スコア", labels={'number':'数字', 'score':'期待度'})
-    st.plotly_chart(fig, use_container_width=True)
-
-    # --- バックテスト ---
-    if st.button("過去50回の精度検証を実行"):
-        with st.spinner('検証中...'):
-            test_results = []
-            for i in range(len(df)-50, len(df)):
-                if i < 1: continue
-                train = df.iloc[:i]
-                actual = set(df.iloc[i][target_cols].values)
-                r = generate_ranking(train, df.iloc[i]['set'], set(df.iloc[i-1][target_cols].values))
-                test_results.append(len(set(r.head(7)['number']) & actual))
+        # --- 分析エンジン ---
+        def generate_ranking(full_data, set_data, p_nums):
+            score_df = pd.DataFrame({'number': range(1, 38)})
             
-            st.write(f"✅ **検証完了**： 平均一致数 {np.mean(test_results):.2f} / 最大一致 {np.max(test_results)}")
-            st.line_chart(test_results)
+            # 1. セット内出現頻度 (このセットでよく出る数字)
+            set_counts = pd.Series(set_data[target_cols].values.flatten()).value_counts(normalize=True)
+            score_df['set_bias'] = score_df['number'].apply(lambda n: set_counts.get(n, 0))
+            
+            # 2. 直近トレンド (このセットにおける最近の傾向)
+            recent = pd.Series(set_data.tail(window)[target_cols].values.flatten()).value_counts()
+            score_df['recent'] = score_df['number'].apply(lambda n: recent.get(n, 0))
+            
+            # 3. マルコフ連鎖 (全データからの推移確率)
+            # ※前回がどのセットでも、今の数字から次に出やすい数字を計算
+            matrix = np.zeros(38)
+            for i in range(len(full_data) - 1):
+                curr = set(full_data.iloc[i][target_cols].values)
+                if not curr.isdisjoint(p_nums):
+                    for n in full_data.iloc[i+1][target_cols].values:
+                        if 1 <= int(n) <= 37: matrix[int(n)] += 1
+            
+            m_norm = matrix / matrix.sum() if matrix.sum() > 0 else matrix
+            score_df['markov'] = score_df['number'].apply(lambda n: m_norm[int(n)])
+            
+            # 総合スコア
+            score_df['score'] = (score_df['set_bias'] * 0.5) + (score_df['recent'] * 0.3) + (score_df['markov'] * 0.2)
+            return score_df.sort_values('score', ascending=False)
+
+        # 予測実行
+        latest_nums = set(df.iloc[-1][target_cols].values)
+        ranking = generate_ranking(df, df_set_only, latest_nums)
+        top = ranking['number'].astype(int).tolist()
+
+        # --- 結果表示 ---
+        st.divider()
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.success(f"**本命 (F)**\n\n{sorted(top[:7])}")
+        with col2:
+            st.info(f"**対抗 (R)**\n\n{sorted(top[:5] + top[7:9])}")
+        with col3:
+            st.warning(f"**穴 (D)**\n\n{sorted(top[:3] + top[14:18])}")
+
+        # 統計グラフ
+        st.subheader(f"📊 セット {selected_set} 分析スコア")
+        fig = px.bar(ranking, x='number', y='score', color='score', color_continuous_scale='Viridis')
+        st.plotly_chart(fig, use_container_width=True)
+
+        # --- セット限定の過去50回検証 ---
+        if st.button(f"セット {selected_set} 限定で精度検証"):
+            with st.spinner('検証中...'):
+                test_results = []
+                # セット球限定のデータでバックテスト
+                for i in range(len(df_set_only)-10, len(df_set_only)):
+                    if i < 2: continue
+                    test_train = df_set_only.iloc[:i]
+                    actual = set(df_set_only.iloc[i][target_cols].values)
+                    # その時の「前回の数字」を取得
+                    original_idx = df_set_only.index[i]
+                    prev_nums = set(df.loc[original_idx-1][target_cols].values)
+                    
+                    r = generate_ranking(df.loc[:original_idx-1], test_train, prev_nums)
+                    test_results.append(len(set(r.head(7)['number']) & actual))
+                
+                st.write(f"✅ **検証完了** (直近{len(test_results)}回)： 平均一致数 {np.mean(test_results):.2f}")
+                st.line_chart(test_results)
 
 else:
-    st.info("サイドバーから『自動更新』を選択するか、CSVファイルをアップロードしてください。")
+    st.info("データを選択してください。")
